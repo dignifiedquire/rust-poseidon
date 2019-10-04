@@ -3,7 +3,7 @@ extern crate criterion;
 
 use criterion::{black_box, Criterion, ParameterizedBenchmark};
 use gperftools::profiler::PROFILER;
-use poseidon_rs::hash_bytes;
+use poseidon::hash_bytes;
 use rand::{thread_rng, Rng};
 
 fn start_profile(stage: &str) {
@@ -29,7 +29,7 @@ fn poseidon_benchmark(c: &mut Criterion) {
 
                 // start_profile("poseidon");
 
-                b.iter(|| black_box(hash_bytes(&data).unwrap()));
+                b.iter(|| black_box(hash_bytes(&data)));
                 // stop_profile();
             },
             params,
