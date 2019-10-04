@@ -1,0 +1,26 @@
+[package]
+name = "poseidon"
+version = "0.1.0"
+authors = ["dignifiedquire <dignifiedquire@gmail.com>"]
+license = "MIT"
+description = "Poseidon hash"
+repository = "https://github.com/dignifiedquire/poseidon"
+
+edition = "2018"
+
+[dependencies]
+lazy_static = "1.4.0"
+# paired = "0.15.1"
+# ff = "0.4.0"
+paired = { path = "../pairing" }
+ff = { path = "../ff" }
+blake2b_simd = "0.5.8"
+
+[dev-dependencies]
+criterion = "0.3.0"
+rand = "0.7.2"
+gperftools = "0.2.0"
+
+[[bench]]
+name = "poseidon"
+harness = false
