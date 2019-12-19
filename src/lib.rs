@@ -7,7 +7,9 @@ lazy_static! {
 }
 
 const SEED: &str = "poseidon";
+// full rounds
 const NROUNDSF: usize = 8;
+// partial rounds
 const NROUNDSP: usize = 57;
 const T: usize = 6;
 
@@ -75,7 +77,7 @@ fn get_mds() -> Vec<Vec<Fr>> {
     for i in 0..T {
         let mut mi = Vec::with_capacity(T);
         for j in 0..T {
-            let mut a = cauchy_matrix[i].clone();
+            let mut a = cauchy_matrix[i];
             a.sub_assign(&cauchy_matrix[T + j]);
             let res = a.inverse().unwrap();
 
@@ -111,56 +113,52 @@ fn ark(state: &mut [Fr; T], c: &Fr) {
 }
 
 #[inline]
-fn cubic(a: &Fr) -> Fr {
-    let mut res = a.clone();
-    res.square(); // ^2
-    res.square(); // ^4
-    res.mul_assign(a); // ^5
-
-    res
+fn cubic(a: &mut Fr) {
+    let old = a.clone();
+    a.square(); // ^2
+    a.square(); // ^4
+    a.mul_assign(&old); // ^5
 }
 
 fn sbox(state: &mut [Fr; T], i: usize) {
+    cubic(&mut state[0]);
+
     if i < NROUNDSF / 2 || i >= NROUNDSF / 2 + NROUNDSP {
-        state[0] = cubic(&state[0]);
-        state[1] = cubic(&state[1]);
-        state[2] = cubic(&state[2]);
-        state[3] = cubic(&state[3]);
-        state[4] = cubic(&state[4]);
-        state[5] = cubic(&state[5]);
-    } else {
-        state[0] = cubic(&state[0]);
+        cubic(&mut state[1]);
+        cubic(&mut state[2]);
+        cubic(&mut state[3]);
+        cubic(&mut state[4]);
+        cubic(&mut state[5]);
     }
 }
 
 fn mix(state: &mut [Fr; T], old_state: &[Fr; T], m: &[Vec<Fr>]) {
-    for i in 0..T {
-        state[i] = Fr::zero();
+    for (si, mi) in state.iter_mut().zip(m.iter()) {
+        let mut res = mi[0];
+        res.mul_assign(&old_state[0]);
 
-        let mut v0 = m[i][0].clone();
-        v0.mul_assign(&old_state[0]);
-
-        let mut v1 = m[i][1].clone();
+        let mut v1 = mi[1];
         v1.mul_assign(&old_state[1]);
 
-        let mut v2 = m[i][2].clone();
+        let mut v2 = mi[2];
         v2.mul_assign(&old_state[2]);
 
-        let mut v3 = m[i][3].clone();
+        let mut v3 = mi[3];
         v3.mul_assign(&old_state[3]);
 
-        let mut v4 = m[i][4].clone();
+        let mut v4 = mi[4];
         v4.mul_assign(&old_state[4]);
 
-        let mut v5 = m[i][5].clone();
+        let mut v5 = mi[5];
         v5.mul_assign(&old_state[5]);
 
-        state[i].add_assign(&v0);
-        state[i].add_assign(&v1);
-        state[i].add_assign(&v2);
-        state[i].add_assign(&v3);
-        state[i].add_assign(&v4);
-        state[i].add_assign(&v5);
+        res.add_assign(&v1);
+        res.add_assign(&v2);
+        res.add_assign(&v3);
+        res.add_assign(&v4);
+        res.add_assign(&v5);
+
+        *si = res;
     }
 }
 
@@ -173,22 +171,22 @@ fn poseidon_hash(state: &mut [Fr; T]) -> Fr {
         mix(state, &old_state, &CONSTANTS.m);
     }
 
-    state[0].clone()
+    state[0]
 }
 
-pub fn hash(frs: &[Fr]) -> Fr {
+pub fn hash(frs: &mut [Fr]) -> Fr {
     let mut r = Fr::zero();
-    let mut five_elems = [Fr::zero(); T];
+    let mut scratch = [Fr::zero(); T];
 
     for chunk in frs.chunks(5) {
-        five_elems[..chunk.len()].copy_from_slice(chunk);
+        scratch[..chunk.len()].copy_from_slice(chunk);
 
-        let res = poseidon_hash(&mut five_elems);
+        let res = poseidon_hash(&mut scratch);
         r.add_assign(&res);
 
         // clear out elements
         for i in 0..T {
-            five_elems[i] = Fr::zero();
+            scratch[i] = Fr::zero();
         }
     }
 
@@ -196,22 +194,28 @@ pub fn hash(frs: &[Fr]) -> Fr {
 }
 
 pub fn hash_bytes(b: &[u8]) -> Fr {
-    let n = 31;
+    use byteorder::{ByteOrder, LittleEndian};
+
     let mut to_hash = [0u8; 32];
 
-    let frs: Vec<Fr> = b
-        .chunks(n)
+    let mut frs: Vec<Fr> = b
+        .chunks(31)
         .map(|chunk| {
             to_hash[..chunk.len()].copy_from_slice(chunk);
             to_hash[chunk.len()..].copy_from_slice(&vec![0u8; 32 - chunk.len()][..]);
 
-            let mut repr = FrRepr::default();
-            repr.read_le(std::io::Cursor::new(to_hash)).unwrap();
-            Fr::from_repr(repr).unwrap()
+            let repr = [
+                LittleEndian::read_u64(&to_hash[..8]),
+                LittleEndian::read_u64(&to_hash[8..16]),
+                LittleEndian::read_u64(&to_hash[16..24]),
+                LittleEndian::read_u64(&to_hash[24..]),
+            ];
+
+            Fr::from_repr(FrRepr(repr)).unwrap()
         })
         .collect();
 
-    hash(&frs)
+    hash(&mut frs)
 }
 
 #[cfg(test)]
